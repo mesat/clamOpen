@@ -100,6 +100,8 @@ cd clamOpen
 
 或仅编译：`swift build -c release`
 
+运行单元测试：`swift test`
+
 ## 安装
 
 把 **`ClamOpen.app`** 和 **`恢复内置屏.app`** 都拖进 `/Applications`。急救 App 放进去后，Spotlight
@@ -155,12 +157,18 @@ defaults write com.clamopen.app AppleLanguages '("zh-Hans")'
 ## 项目结构
 
 ```
-Sources/ClamOpen/      菜单栏主程序
-  ├── DisplayController.swift   显示器控制（私有接口调用）
+Sources/ClamOpenCore/  可测试的核心逻辑（不依赖 AppKit）
+  ├── DisplaySystem.swift        底层显示接口（私有 CoreGraphics 调用），以协议抽象
+  ├── DisplayController.swift    内置 / 外接显示器查询与开关
+  ├── DisplayPolicy.swift        状态机：手动开关、自动模式、安全恢复、watchdog
   ├── PowerManager.swift         电源管理（休眠优化）
-  ├── AppDelegate.swift          应用主逻辑
+  └── L10n.swift                 界面语言选择（英文 / 中文）
+Sources/ClamOpen/      菜单栏主程序（仅 UI）
+  ├── AppDelegate.swift
   └── main.swift
 Sources/ClamRestore/   独立急救恢复工具
+Tests/ClamOpenCoreTests/  单元测试（模拟 Apple Silicon / Intel 显示器、合盖、错误）
+Localization/          本地化 Bundle 名称（InfoPlist.strings，en / zh-Hans）
 make_icon.swift        程序化图标生成
 build_app.sh           构建并打包两个 .app
 Info*.plist            Bundle 元数据
@@ -169,7 +177,7 @@ scripts/               开发 / 验证脚本（探针、开关测试、禁用）
 
 ## 兼容性
 
-- 实测：macOS 26.5.1，Intel（UHD 630 + Radeon Pro 5500M）。
+- 实测：macOS 26.5.1，Intel（UHD 630 + Radeon Pro 5500M）；macOS 26.5.2，Apple Silicon（M1 Max）。
 - `CGSConfigureDisplayEnabled` 路径在 Intel 与 Apple Silicon 上均可用。
 - 私有接口可能随系统更新变化；截至撰写在上述系统稳定可用。
 

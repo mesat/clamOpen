@@ -1,26 +1,17 @@
 import AppKit
+import ClamOpenCore
 import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private let controller = DisplayController()
+    /// 内置屏开关状态机（自动模式、安全恢复、watchdog），见 ClamOpenCore
+    private let policy = DisplayPolicy(controller: DisplayController(),
+                                       autoMode: UserDefaults.standard.bool(forKey: "autoMode"))
+    private var controller: DisplayController { policy.controller }
     private let powerManager = PowerManager()
     private var statusItem: NSStatusItem!
 
-    /// 当前“意图”：用户或自动逻辑希望内置屏保持关闭
-    private var intentDisabled = false
-
-    /// 自动模式：检测到外接显示器自动关闭内置，拔掉自动恢复
-    private var autoMode = false {
-        didSet { UserDefaults.standard.set(autoMode, forKey: "autoMode") }
-    }
-
     private var watchdog: Timer?
-
-    /// 自动模式只在外接显示器插拔时动作，手动“恢复内置屏”后不会被立刻再次关闭
-    private var lastHasExternal: Bool?
-    /// 刚接上外接、尚未成功关闭内置屏（关闭失败时由 watchdog 重试）
-    private var autoDisablePending = false
 
     /// CoreGraphics 显示重配置回调（拔插显示器时即时触发，比 NSNotification 更底层、更早）。
     /// 闭包不捕获 self，AppDelegate 通过 userInfo 指针传入。
@@ -35,7 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)   // 仅菜单栏，无 Dock 图标
-        autoMode = UserDefaults.standard.bool(forKey: "autoMode")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
@@ -58,23 +48,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notify(tr("Not supported on this system", "当前系统不支持"),
                    tr("Unable to call the private CGSConfigureDisplayEnabled API.",
                       "无法调用 CGSConfigureDisplayEnabled 私有接口。"))
-        } else if autoMode {
-            evaluateAuto(force: true)
+        } else {
+            policy.start()
+            refresh()
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // 退出前务必恢复内置屏，避免用户退出后找不到开关
-        if intentDisabled { controller.enableBuiltin() }
+        policy.prepareForQuit()
     }
 
     // MARK: - 动作
 
     @objc private func disable() {
-        let r = controller.disableBuiltin()
+        let r = policy.disable()
         switch r {
         case .ok:
-            intentDisabled = true
+            break
         case .noExternal:
             notify(tr("Can't turn off the internal display", "无法关闭内置屏"),
                    tr("Connect an external display first — otherwise the screen would go completely black and unusable.",
@@ -86,15 +77,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func enable() {
-        autoDisablePending = false   // 用户手动恢复：自动模式不再立刻关闭
-        controller.enableBuiltin()
-        intentDisabled = false
+        let r = policy.enable()
+        if r != .ok {
+            notify(tr("Failed to restore", "恢复失败"), r.message)
+        }
         refresh()
     }
 
     @objc private func toggleAuto() {
-        autoMode.toggle()
-        if autoMode { evaluateAuto(force: true) }
+        policy.setAutoMode(!policy.autoMode)
+        UserDefaults.standard.set(policy.autoMode, forKey: "autoMode")
         refresh()
     }
 
@@ -123,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
-        if intentDisabled { controller.enableBuiltin() }
+        policy.prepareForQuit()
         NSApp.terminate(nil)
     }
 
@@ -233,61 +225,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         enforceSafety()
     }
 
-    /// 安全收敛：任何显示器变化后调用。
-    /// 硬规则：处于关闭意图但已无外接 → 立即恢复内置屏，杜绝全黑死局。
+    /// 任何显示器变化后调用（安全恢复 + 自动模式插拔处理，见 DisplayPolicy）
     func enforceSafety() {
-        if intentDisabled && !controller.hasExternalDisplay() {
-            controller.enableBuiltin()
-            intentDisabled = false
-        } else if autoMode {
-            evaluateAuto()
-        }
+        policy.displaysChanged()
         refresh()
-    }
-
-    /// - Parameter force: 启动 / 开启自动模式时为 true，按当前状态立即评估
-    private func evaluateAuto(force: Bool = false) {
-        guard autoMode else { return }
-        let hasExt = controller.hasExternalDisplay()
-        if force || hasExt != lastHasExternal {
-            autoDisablePending = hasExt
-            if !hasExt, intentDisabled || !controller.isBuiltinActive() {
-                controller.enableBuiltin()
-                intentDisabled = false
-            }
-        }
-        lastHasExternal = hasExt
-
-        if autoDisablePending && hasExt {
-            if !controller.isBuiltinActive() {
-                autoDisablePending = false
-            } else if controller.disableBuiltin() == .ok {
-                intentDisabled = true
-                autoDisablePending = false
-            }
-        }
     }
 
     private func startWatchdog() {
         // 用 .common 模式，确保菜单打开时也持续运行
         let t = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
             guard let self else { return }
-
-            // 1) 安全恢复：意图关闭却已无外接
-            if self.intentDisabled && !self.controller.hasExternalDisplay() {
-                self.controller.enableBuiltin()
-                self.intentDisabled = false
-                self.refresh()
-                return
-            }
-            // 2) Intel 偶发唤醒：意图关闭但内置又被点亮 → 重新关闭
-            if self.intentDisabled && self.controller.hasExternalDisplay()
-                && self.controller.isBuiltinActive() {
-                self.controller.disableBuiltin()
-                self.updateIcon()
-            }
-            // 3) 自动模式常态评估
-            if self.autoMode { self.evaluateAuto() }
+            if self.policy.watchdogTick() { self.refresh() }
         }
         RunLoop.main.add(t, forMode: .common)
         watchdog = t
@@ -301,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateIcon() {
-        let off = intentDisabled || !controller.isBuiltinActive()
+        let off = policy.isBuiltinOff
         let symbol = off ? "laptopcomputer.slash" : "laptopcomputer"
         if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "ClamOpen") {
             img.isTemplate = true
@@ -324,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let statusText: String
         if !controller.isAPIAvailable {
             statusText = tr("⚠︎ Not supported on this system", "⚠︎ 当前系统不支持")
-        } else if !builtinActive && intentDisabled {
+        } else if !builtinActive && policy.intentDisabled {
             statusText = tr("Internal display: Off (external only)", "内置屏：已关闭（仅外接）")
         } else {
             statusText = tr("Internal display: On", "内置屏：开启中")
@@ -354,11 +302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         // —— 自动模式 ——
-        let auto = NSMenuItem(title: tr("Auto-Disable Internal Display When External Is Connected",
+        let auto = NSMenuItem(title: tr("Use External Only When Connected",
                                         "接外接显示器时自动关闭内置屏"),
                               action: #selector(toggleAuto), keyEquivalent: "")
         auto.target = self
-        auto.state = autoMode ? .on : .off
+        auto.state = policy.autoMode ? .on : .off
         auto.toolTip = tr("When an external display is connected, the internal display turns off automatically. When it is unplugged, the internal display turns back on.",
                           "接上外接显示器时自动关闭内置屏，拔掉后自动恢复。")
         menu.addItem(auto)

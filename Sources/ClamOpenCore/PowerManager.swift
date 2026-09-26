@@ -1,15 +1,15 @@
 import Foundation
 
 /// 电源管理器 —— 管理休眠相关的 pmset 设置，防止夜间频繁唤醒耗电
-final class PowerManager {
+public final class PowerManager {
 
-    enum PowerSetting {
+    public enum PowerSetting {
         case tcpKeepAlive
         case wakeOnMagicPacket  // womp - Wake on Magic Packet
         case proximityWake
         case standbyDelay
 
-        var key: String {
+        public var key: String {
             switch self {
             case .tcpKeepAlive: return "tcpkeepalive"
             case .wakeOnMagicPacket: return "womp"
@@ -18,7 +18,7 @@ final class PowerManager {
             }
         }
 
-        var description: String {
+        public var description: String {
             switch self {
             case .tcpKeepAlive: return tr("TCP Keep Alive (prevents frequent wake-ups)", "TCP 保活（防频繁唤醒）")
             case .wakeOnMagicPacket: return tr("Wake on Network", "网络唤醒")
@@ -30,8 +30,15 @@ final class PowerManager {
 
     // MARK: - 读取当前设置
 
-    /// 获取指定电源设置的当前值
-    func getCurrentValue(_ setting: PowerSetting) -> String? {
+    /// 读取 `pmset -g` 的输出（测试时可注入固定文本）
+    private let readPmset: () -> String?
+
+    public init(readPmset: @escaping () -> String? = PowerManager.runPmset) {
+        self.readPmset = readPmset
+    }
+
+    /// 执行 `pmset -g` 并返回输出
+    public static func runPmset() -> String? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
         task.arguments = ["-g"]
@@ -42,42 +49,47 @@ final class PowerManager {
         do {
             try task.run()
             task.waitUntilExit()
-
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-            // 解析输出，查找 key
-            for line in output.components(separatedBy: .newlines) {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix(setting.key) {
-                    // 格式：tcpkeepalive         0 (可能有多个空格)
-                    let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
-                    if parts.count >= 2 {
-                        return String(parts[1])
-                    }
-                }
-            }
-            return nil
+            return String(data: data, encoding: .utf8)
         } catch {
             print(tr("Failed to read pmset: \(error)", "读取 pmset 失败: \(error)"))
             return nil
         }
     }
 
+    /// 从 `pmset -g` 输出中解析某个 key 的值。
+    /// 格式：` tcpkeepalive         0`（空格 / Tab 数量不定）。key 必须整词匹配，
+    /// 否则 `standbydelay` 会误匹配 Intel 机型上的 `standbydelayhigh` / `standbydelaylow`。
+    public static func parseValue(forKey key: String, in output: String) -> String? {
+        for line in output.components(separatedBy: .newlines) {
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if parts.count >= 2, parts[0] == key {
+                return String(parts[1])
+            }
+        }
+        return nil
+    }
+
+    /// 获取指定电源设置的当前值
+    public func getCurrentValue(_ setting: PowerSetting) -> String? {
+        guard let output = readPmset() else { return nil }
+        return PowerManager.parseValue(forKey: setting.key, in: output)
+    }
+
     /// 检查 TCP Keep Alive 是否启用（导致频繁唤醒的主要原因）
-    func isTCPKeepAliveEnabled() -> Bool {
+    public func isTCPKeepAliveEnabled() -> Bool {
         guard let value = getCurrentValue(.tcpKeepAlive) else { return true }
         return value != "0"
     }
 
     /// 检查网络唤醒是否启用
-    func isWakeOnMagicPacketEnabled() -> Bool {
+    public func isWakeOnMagicPacketEnabled() -> Bool {
         guard let value = getCurrentValue(.wakeOnMagicPacket) else { return true }
         return value != "0"
     }
 
     /// 检查靠近唤醒是否启用
-    func isProximityWakeEnabled() -> Bool {
+    public func isProximityWakeEnabled() -> Bool {
         guard let value = getCurrentValue(.proximityWake) else { return true }
         return value != "0"
     }
@@ -87,7 +99,7 @@ final class PowerManager {
     /// 应用推荐的省电设置（需要管理员权限）
     /// - Returns: (成功, 错误信息)
     @discardableResult
-    func applyPowerSavingSettings() -> (success: Bool, message: String) {
+    public func applyPowerSavingSettings() -> (success: Bool, message: String) {
         var results: [(String, Bool)] = []
 
         // 1. 禁用 TCP Keep Alive（最重要）
@@ -121,7 +133,7 @@ final class PowerManager {
 
     /// 恢复默认设置
     @discardableResult
-    func restoreDefaultSettings() -> (success: Bool, message: String) {
+    public func restoreDefaultSettings() -> (success: Bool, message: String) {
         var results: [(String, Bool)] = []
 
         // 恢复为 macOS 默认值
@@ -189,7 +201,7 @@ final class PowerManager {
     // MARK: - 诊断信息
 
     /// 获取当前电源设置摘要
-    func getPowerSettingsSummary() -> String {
+    public func getPowerSettingsSummary() -> String {
         var lines: [String] = []
         lines.append(tr("Current power settings:", "当前电源设置："))
         lines.append("")
@@ -210,7 +222,7 @@ final class PowerManager {
     }
 
     /// 检查是否需要优化（有潜在的耗电问题）
-    func needsOptimization() -> Bool {
+    public func needsOptimization() -> Bool {
         return isTCPKeepAliveEnabled() || isWakeOnMagicPacketEnabled()
     }
 }
