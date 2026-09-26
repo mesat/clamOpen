@@ -59,6 +59,56 @@ final class DisplayControllerTests: XCTestCase {
         XCTAssertTrue(sys.calls.isEmpty, "内置屏已活动时不应触发显示重配置")
     }
 
+    // MARK: - 虚拟占位显示器
+
+    func testPlaceholderIsNotCountedAsExternal() {
+        let sys = FakeDisplaySystem(arch: .appleSilicon)
+        let c = DisplayController(system: sys)
+        c.disableBuiltin()
+        sys.unplug()
+
+        XCTAssertEqual(sys.onlineDisplays(), [FakeDisplaySystem.placeholderID])
+        XCTAssertFalse(c.hasExternalDisplay(), "虚拟占位显示器不是外接显示器")
+        XCTAssertEqual(c.externalDisplays(), [])
+    }
+
+    func testRestoreWhenBuiltinVanishedBehindPlaceholder() {
+        // 回归（M1 Max 实测）：内置屏已禁用时拔掉外接，内置屏从所有列表中消失，只剩占位显示器
+        let sys = FakeDisplaySystem(arch: .appleSilicon)
+        let c = DisplayController(system: sys)
+        c.disableBuiltin()
+        sys.unplug()
+        XCTAssertEqual(sys.allDisplays(), [FakeDisplaySystem.placeholderID])
+
+        XCTAssertEqual(c.enableBuiltin(), .ok)
+        XCTAssertTrue(c.isBuiltinActive())
+        XCTAssertFalse(sys.showsPlaceholder)
+    }
+
+    func testRemembersDisabledBuiltinAtInit() {
+        // App 启动时内置屏已被禁用（例如上次运行留下的），此时仍能从完整列表记住它的 ID
+        let sys = FakeDisplaySystem(arch: .appleSilicon)
+        sys.setBuiltinDisabledExternally()
+        let c = DisplayController(system: sys)
+        XCTAssertEqual(c.knownBuiltinID, FakeDisplaySystem.builtinID)
+
+        sys.unplug()
+        XCTAssertEqual(c.enableBuiltin(), .ok)
+    }
+
+    func testSavedBuiltinIDRestoresAfterRestartBehindPlaceholder() {
+        // App 在“内置屏已禁用 + 外接已拔掉”的状态下重启：只能靠持久化的 ID 恢复
+        let sys = FakeDisplaySystem(arch: .appleSilicon)
+        sys.setBuiltinDisabledExternally()
+        sys.unplug()
+
+        XCTAssertEqual(DisplayController(system: sys).enableBuiltin(), .noBuiltin)
+
+        let c = DisplayController(system: sys, knownBuiltinID: FakeDisplaySystem.builtinID)
+        XCTAssertEqual(c.enableBuiltin(), .ok)
+        XCTAssertTrue(c.isBuiltinActive())
+    }
+
     // MARK: - 安全拦截
 
     func testDisableRefusedWithoutExternalDisplay() {

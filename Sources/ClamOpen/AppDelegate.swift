@@ -5,7 +5,10 @@ import ServiceManagement
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 内置屏开关状态机（自动模式、安全恢复、watchdog），见 ClamOpenCore
-    private let policy = DisplayPolicy(controller: DisplayController(),
+    /// 内置屏 ID 持久化到 com.clamopen.app 偏好设置（ClamRestore 也会读取）
+    private static let builtinIDKey = "builtinDisplayID"
+
+    private let policy = DisplayPolicy(controller: DisplayController(knownBuiltinID: AppDelegate.savedBuiltinID()),
                                        autoMode: UserDefaults.standard.bool(forKey: "autoMode"))
     private var controller: DisplayController { policy.controller }
     private let powerManager = PowerManager()
@@ -246,6 +249,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refresh() {
         rebuildMenu()
         updateIcon()
+        saveBuiltinID()
+    }
+
+    private static func savedBuiltinID() -> CGDirectDisplayID? {
+        let v = UserDefaults.standard.integer(forKey: builtinIDKey)
+        return v > 0 ? CGDirectDisplayID(v) : nil
+    }
+
+    private func saveBuiltinID() {
+        guard let id = controller.knownBuiltinID, id != AppDelegate.savedBuiltinID() else { return }
+        UserDefaults.standard.set(Int(id), forKey: AppDelegate.builtinIDKey)
     }
 
     private func updateIcon() {

@@ -12,8 +12,23 @@ public final class DisplayController {
     /// 最近一次见到的内置屏 ID（兜底：禁用后枚举不到时仍能恢复）
     private var lastBuiltinID: CGDirectDisplayID?
 
-    public init(system: DisplaySystem = CGDisplaySystem()) {
+    /// - Parameter knownBuiltinID: 上次运行时记住的内置屏 ID（App 重启后仍能恢复）
+    public init(system: DisplaySystem = CGDisplaySystem(), knownBuiltinID: CGDirectDisplayID? = nil) {
         self.system = system
+        self.lastBuiltinID = knownBuiltinID
+        rememberBuiltin()
+    }
+
+    /// 已知的内置屏 ID（供持久化）
+    public var knownBuiltinID: CGDirectDisplayID? { lastBuiltinID }
+
+    /// 趁内置屏还能枚举到时记住它的 ID：
+    /// 内置屏已禁用且拔掉外接后，它会从所有列表中消失（只剩虚拟占位显示器）
+    private func rememberBuiltin() {
+        if let id = system.onlineDisplays().first(where: { system.isBuiltin($0) })
+            ?? system.allDisplays()?.first(where: { system.isBuiltin($0) }) {
+            lastBuiltinID = id
+        }
     }
 
     /// 私有 API 是否可用（理论上所有现代 macOS 都可用）
@@ -43,9 +58,10 @@ public final class DisplayController {
         return lastBuiltinID
     }
 
-    /// 在线的外接显示器（非内置）
+    /// 在线的外接显示器（非内置、非虚拟占位）
     public func externalDisplays() -> [CGDirectDisplayID] {
-        onlineDisplays().filter { !system.isBuiltin($0) }
+        rememberBuiltin()
+        return onlineDisplays().filter { !system.isBuiltin($0) && !system.isVirtualPlaceholder($0) }
     }
 
     public func hasExternalDisplay() -> Bool { !externalDisplays().isEmpty }

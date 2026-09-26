@@ -69,6 +69,31 @@ final class DisplayPolicyTests: XCTestCase {
         XCTAssertFalse(policy.intentDisabled)
     }
 
+    func testUnplugRestoresBuiltinBehindPlaceholderInAutoMode() {
+        // 回归（M1 Max 实测）：拔掉外接后 WindowServer 插入虚拟占位显示器，
+        // App 把它当成外接，内置屏一直不恢复
+        let (sys, policy) = make(arch: .appleSilicon, autoMode: true)
+        policy.start()
+        XCTAssertFalse(sys.builtinEnabled)
+
+        sys.unplug()
+        XCTAssertTrue(sys.showsPlaceholder)
+        policy.displaysChanged()
+
+        XCTAssertTrue(sys.builtinEnabled)
+        XCTAssertFalse(policy.intentDisabled)
+    }
+
+    func testUnplugRestoresBehindPlaceholderViaWatchdogOnly() {
+        let (sys, policy) = make(arch: .appleSilicon)
+        policy.disable()
+
+        sys.unplug()
+        policy.watchdogTick()
+
+        XCTAssertTrue(sys.builtinEnabled)
+    }
+
     func testUnplugRestoresBuiltinOnIntel() {
         let (sys, policy) = make(arch: .intel)
         policy.disable()

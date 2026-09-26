@@ -50,10 +50,16 @@ func enable(_ id: CGDirectDisplayID) -> Bool {
     return CGCompleteDisplayConfiguration(cfg, .forSession) == .success
 }
 
-let displays = allDisplays()
+// 内置屏已禁用且外接已拔掉时，CGSGetDisplayList 只剩一台虚拟占位显示器，内置屏不在其中。
+// 因此额外尝试 ClamOpen 记住的内置屏 ID，以及内置屏的常见 ID 1。
+let savedBuiltin = UserDefaults(suiteName: "com.clamopen.app")?.integer(forKey: "builtinDisplayID") ?? 0
+var displays = allDisplays()
+for id in [CGDirectDisplayID(savedBuiltin), 1] where id > 0 && !displays.contains(id) {
+    displays.append(id)
+}
 var restored = 0
 for d in displays {
-    let builtin = CGDisplayIsBuiltin(d) != 0
+    let builtin = CGDisplayIsBuiltin(d) != 0 || d == CGDirectDisplayID(savedBuiltin)
     if enable(d) {
         restored += 1
         let tag = builtin ? tr("(internal)", "(内置)") : tr("(external)", "(外接)")

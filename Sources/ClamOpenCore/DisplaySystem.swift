@@ -11,6 +11,8 @@ public protocol DisplaySystem: AnyObject {
     func allDisplays() -> [CGDirectDisplayID]?
     func isBuiltin(_ id: CGDirectDisplayID) -> Bool
     func isActive(_ id: CGDirectDisplayID) -> Bool
+    /// WindowServer 在没有任何物理显示器在线时插入的虚拟占位显示器
+    func isVirtualPlaceholder(_ id: CGDirectDisplayID) -> Bool
     /// 启用 / 禁用单个显示器（一次完整的 begin → configure → complete 事务）
     func setEnabled(_ id: CGDirectDisplayID, _ enabled: Bool) -> DisplayController.Result
 }
@@ -62,6 +64,16 @@ public final class CGDisplaySystem: DisplaySystem {
     public func isBuiltin(_ id: CGDirectDisplayID) -> Bool { CGDisplayIsBuiltin(id) != 0 }
 
     public func isActive(_ id: CGDirectDisplayID) -> Bool { CGDisplayIsActive(id) != 0 }
+
+    /// 占位显示器的 vendor / model 为 FourCC 'unkn' / 'virt'（实测 Apple Silicon，macOS 26）。
+    /// 例如：内置屏已禁用时拔掉外接，在线列表里只剩这台 1920x1080 的虚拟显示器。
+    static let placeholderVendor: UInt32 = 0x756E_6B6E   // 'unkn'
+    static let placeholderModel: UInt32 = 0x7669_7274    // 'virt'
+
+    public func isVirtualPlaceholder(_ id: CGDirectDisplayID) -> Bool {
+        CGDisplayVendorNumber(id) == Self.placeholderVendor
+            && CGDisplayModelNumber(id) == Self.placeholderModel
+    }
 
     public func setEnabled(_ id: CGDirectDisplayID, _ enabled: Bool) -> DisplayController.Result {
         guard let fn = configureEnabled else { return .apiMissing }
