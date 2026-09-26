@@ -121,7 +121,9 @@ Drag **both** `ClamOpen.app` and `恢复内置屏.app` into `/Applications`. Put
 lets Spotlight find it when the screen is black (strongly recommended). First launch may be blocked by
 Gatekeeper (local ad-hoc signature) — right-click → **Open**.
 
-Launch at login: System Settings → General → Login Items → add `ClamOpen.app`.
+Launch at login: click the menu-bar icon → **Launch at Login** (macOS 13+). Enable it *after* moving the app to
+`/Applications`, since it registers the app at its current location. On macOS 12, add `ClamOpen.app` manually in
+System Settings → General → Login Items.
 
 ## Usage
 
@@ -129,7 +131,7 @@ Launch at login: System Settings → General → Login Items → add `ClamOpen.a
 
 1. Connect an external display.
 2. Click the menu-bar icon → **Turn off the internal display**.
-3. To bring it back → **Restore the internal display**, or enable **Auto** mode.
+3. To bring it back → **Restore the internal display**, or enable **Auto-Disable Internal Display When External Is Connected** so it happens automatically on plug / unplug.
 
 ### Power Management (Prevent Night-time Battery Drain)
 

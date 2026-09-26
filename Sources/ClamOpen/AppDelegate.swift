@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -88,6 +89,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleAuto() {
         autoMode.toggle()
         if autoMode { evaluateAuto() }
+        refresh()
+    }
+
+    /// 登录时启动（macOS 13+ 使用 SMAppService，无需手动添加到登录项）
+    @available(macOS 13.0, *)
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            notify(tr("Couldn't change Launch at Login", "无法更改登录时启动"),
+                   error.localizedDescription)
+        }
+        // 用户可能在系统设置中禁用了本 App 的登录项，需要手动批准
+        if service.status == .requiresApproval {
+            notify(tr("Approval required", "需要批准"),
+                   tr("Allow ClamOpen in System Settings → General → Login Items.",
+                      "请在 系统设置 → 通用 → 登录项 中允许 ClamOpen。"))
+            SMAppService.openSystemSettingsLoginItems()
+        }
         refresh()
     }
 
@@ -312,12 +337,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         // —— 自动模式 ——
-        let auto = NSMenuItem(title: tr("Auto: off when external connected, restore when unplugged",
-                                        "自动：接外接关、拔掉恢复"),
+        let auto = NSMenuItem(title: tr("Auto-Disable Internal Display When External Is Connected",
+                                        "接外接显示器时自动关闭内置屏"),
                               action: #selector(toggleAuto), keyEquivalent: "")
         auto.target = self
         auto.state = autoMode ? .on : .off
+        auto.toolTip = tr("When an external display is connected, the internal display turns off automatically. When it is unplugged, the internal display turns back on.",
+                          "接上外接显示器时自动关闭内置屏，拔掉后自动恢复。")
         menu.addItem(auto)
+
+        // —— 登录时启动 ——
+        if #available(macOS 13.0, *) {
+            let login = NSMenuItem(title: tr("Launch at Login", "登录时启动"),
+                                   action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+            login.target = self
+            login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+            menu.addItem(login)
+        }
 
         menu.addItem(.separator())
 
