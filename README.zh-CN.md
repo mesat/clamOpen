@@ -141,6 +141,16 @@ pmset -g log | grep -E "DarkWake" | tail -20
 ```
 查看夜间唤醒次数是否明显减少。
 
+### 界面语言
+
+界面跟随 macOS 系统语言：首选语言为中文时显示**简体中文**，否则显示**英文**。如需单独为 ClamOpen 指定语言：
+
+```bash
+defaults write com.clamopen.app AppleLanguages '("zh-Hans")'
+```
+
+（改为 `'("en")'` 即为英文；`defaults delete com.clamopen.app AppleLanguages` 恢复跟随系统），然后重新启动 App。
+
 ## 项目结构
 
 ```

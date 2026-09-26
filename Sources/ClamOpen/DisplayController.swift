@@ -69,13 +69,13 @@ final class DisplayController {
 
         var message: String {
             switch self {
-            case .ok:                   return "成功"
-            case .apiMissing:           return "当前系统不支持该接口"
-            case .noBuiltin:            return "未找到内置显示器"
-            case .noExternal:           return "没有外接显示器，已拒绝（否则会全黑）"
-            case .beginFailed(let e):   return "开始配置失败 (CGError \(e))"
-            case .configureFailed(let e): return "设置失败 (CGError \(e))"
-            case .completeFailed(let e):  return "应用配置失败 (CGError \(e))"
+            case .ok:                   return tr("Success", "成功")
+            case .apiMissing:           return tr("This API is not supported on this system", "当前系统不支持该接口")
+            case .noBuiltin:            return tr("No internal display found", "未找到内置显示器")
+            case .noExternal:           return tr("No external display — refused (the screen would go black)", "没有外接显示器，已拒绝（否则会全黑）")
+            case .beginFailed(let e):   return tr("Failed to begin configuration (CGError \(e))", "开始配置失败 (CGError \(e))")
+            case .configureFailed(let e): return tr("Failed to configure display (CGError \(e))", "设置失败 (CGError \(e))")
+            case .completeFailed(let e):  return tr("Failed to apply configuration (CGError \(e))", "应用配置失败 (CGError \(e))")
             }
         }
     }

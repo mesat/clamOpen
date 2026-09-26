@@ -20,10 +20,10 @@ final class PowerManager {
 
         var description: String {
             switch self {
-            case .tcpKeepAlive: return "TCP 保活（防频繁唤醒）"
-            case .wakeOnMagicPacket: return "网络唤醒"
-            case .proximityWake: return "靠近唤醒"
-            case .standbyDelay: return "待机延迟"
+            case .tcpKeepAlive: return tr("TCP Keep Alive (prevents frequent wake-ups)", "TCP 保活（防频繁唤醒）")
+            case .wakeOnMagicPacket: return tr("Wake on Network", "网络唤醒")
+            case .proximityWake: return tr("Proximity Wake", "靠近唤醒")
+            case .standbyDelay: return tr("Standby Delay", "待机延迟")
             }
         }
     }
@@ -59,7 +59,7 @@ final class PowerManager {
             }
             return nil
         } catch {
-            print("读取 pmset 失败: \(error)")
+            print(tr("Failed to read pmset: \(error)", "读取 pmset 失败: \(error)"))
             return nil
         }
     }
@@ -92,29 +92,30 @@ final class PowerManager {
 
         // 1. 禁用 TCP Keep Alive（最重要）
         let r1 = setSetting(.tcpKeepAlive, value: "0", scope: "a")
-        results.append(("TCP 保活", r1))
+        results.append((tr("TCP Keep Alive", "TCP 保活"), r1))
 
         // 2. 禁用网络唤醒
         let r2 = setSetting(.wakeOnMagicPacket, value: "0", scope: "a")
-        results.append(("网络唤醒", r2))
+        results.append((tr("Wake on Network", "网络唤醒"), r2))
 
         // 3. 禁用靠近唤醒
         let r3 = setSetting(.proximityWake, value: "0", scope: "a")
-        results.append(("靠近唤醒", r3))
+        results.append((tr("Proximity Wake", "靠近唤醒"), r3))
 
         // 4. 调整电池模式下的 standby 延迟为 1 小时
         let r4 = setSetting(.standbyDelay, value: "3600", scope: "b")
-        results.append(("待机延迟", r4))
+        results.append((tr("Standby Delay", "待机延迟"), r4))
 
         let successCount = results.filter { $0.1 }.count
         let failedItems = results.filter { !$0.1 }.map { $0.0 }
 
         if successCount == results.count {
-            return (true, "已成功应用所有省电设置")
+            return (true, tr("All power saving settings were applied successfully", "已成功应用所有省电设置"))
         } else if successCount > 0 {
-            return (true, "部分设置成功（\(successCount)/\(results.count)）\n失败项：\(failedItems.joined(separator: ", "))")
+            return (true, tr("Some settings were applied (\(successCount)/\(results.count))\nFailed: \(failedItems.joined(separator: ", "))",
+                              "部分设置成功（\(successCount)/\(results.count)）\n失败项：\(failedItems.joined(separator: ", "))"))
         } else {
-            return (false, "设置失败，请检查管理员权限")
+            return (false, tr("Failed to apply settings. Please check administrator privileges.", "设置失败，请检查管理员权限"))
         }
     }
 
@@ -125,23 +126,23 @@ final class PowerManager {
 
         // 恢复为 macOS 默认值
         let r1 = setSetting(.tcpKeepAlive, value: "1", scope: "a")
-        results.append(("TCP 保活", r1))
+        results.append((tr("TCP Keep Alive", "TCP 保活"), r1))
 
         let r2 = setSetting(.wakeOnMagicPacket, value: "1", scope: "a")
-        results.append(("网络唤醒", r2))
+        results.append((tr("Wake on Network", "网络唤醒"), r2))
 
         let r3 = setSetting(.proximityWake, value: "1", scope: "a")
-        results.append(("靠近唤醒", r3))
+        results.append((tr("Proximity Wake", "靠近唤醒"), r3))
 
         let r4 = setSetting(.standbyDelay, value: "10800", scope: "b")
-        results.append(("待机延迟", r4))
+        results.append((tr("Standby Delay", "待机延迟"), r4))
 
         let successCount = results.filter { $0.1 }.count
 
         if successCount == results.count {
-            return (true, "已恢复为默认设置")
+            return (true, tr("Default settings restored", "已恢复为默认设置"))
         } else {
-            return (false, "恢复失败，请检查管理员权限")
+            return (false, tr("Failed to restore. Please check administrator privileges.", "恢复失败，请检查管理员权限"))
         }
     }
 
@@ -175,12 +176,12 @@ final class PowerManager {
             } else {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 if let errorMsg = String(data: data, encoding: .utf8) {
-                    print("设置 \(setting.key) 失败: \(errorMsg)")
+                    print(tr("Failed to set \(setting.key): \(errorMsg)", "设置 \(setting.key) 失败: \(errorMsg)"))
                 }
                 return false
             }
         } catch {
-            print("执行 pmset 失败: \(error)")
+            print(tr("Failed to run pmset: \(error)", "执行 pmset 失败: \(error)"))
             return false
         }
     }
@@ -190,7 +191,7 @@ final class PowerManager {
     /// 获取当前电源设置摘要
     func getPowerSettingsSummary() -> String {
         var lines: [String] = []
-        lines.append("当前电源设置：")
+        lines.append(tr("Current power settings:", "当前电源设置："))
         lines.append("")
 
         let tcpKeepAlive = getCurrentValue(.tcpKeepAlive) ?? "?"
@@ -198,10 +199,12 @@ final class PowerManager {
         let proximity = getCurrentValue(.proximityWake) ?? "?"
         let standby = getCurrentValue(.standbyDelay) ?? "?"
 
-        lines.append("TCP 保活：\(tcpKeepAlive) \(tcpKeepAlive == "0" ? "✓ 已禁用" : "⚠️ 启用中（会导致频繁唤醒）")")
-        lines.append("网络唤醒：\(womp) \(womp == "0" ? "✓ 已禁用" : "启用中")")
-        lines.append("靠近唤醒：\(proximity) \(proximity == "0" ? "✓ 已禁用" : "启用中")")
-        lines.append("待机延迟：\(standby) 秒")
+        let disabled = tr("✓ Disabled", "✓ 已禁用")
+        let enabled = tr("Enabled", "启用中")
+        lines.append(tr("TCP Keep Alive: ", "TCP 保活：") + "\(tcpKeepAlive) \(tcpKeepAlive == "0" ? disabled : tr("⚠️ Enabled (causes frequent wake-ups)", "⚠️ 启用中（会导致频繁唤醒）"))")
+        lines.append(tr("Wake on Network: ", "网络唤醒：") + "\(womp) \(womp == "0" ? disabled : enabled)")
+        lines.append(tr("Proximity Wake: ", "靠近唤醒：") + "\(proximity) \(proximity == "0" ? disabled : enabled)")
+        lines.append(tr("Standby Delay: \(standby) s", "待机延迟：\(standby) 秒"))
 
         return lines.joined(separator: "\n")
     }

@@ -156,6 +156,17 @@ pmset -g log | grep -E "DarkWake" | tail -20
 ```
 to check if night-time wake-ups have decreased significantly.
 
+### Language
+
+The UI follows your macOS language: **Simplified Chinese** when your preferred language is Chinese,
+**English** otherwise. To force a language for ClamOpen only:
+
+```bash
+defaults write com.clamopen.app AppleLanguages '("en")'
+```
+
+(use `'("zh-Hans")'` for Chinese, or `defaults delete com.clamopen.app AppleLanguages` to follow the system again), then relaunch the app.
+
 ## Project structure
 
 ```
@@ -163,8 +174,10 @@ Sources/ClamOpen/      Menu-bar app
   ├── DisplayController.swift   Display control (private API calls)
   ├── PowerManager.swift         Power management (sleep optimization)
   ├── AppDelegate.swift          Main app logic
+  ├── L10n.swift                 UI language selection (English / Chinese)
   └── main.swift
 Sources/ClamRestore/   Standalone emergency restore tool
+Localization/          Localized bundle names (InfoPlist.strings, en / zh-Hans)
 make_icon.swift        Programmatic icon generator
 build_app.sh           Build + package both .apps
 Info*.plist            Bundle metadata
