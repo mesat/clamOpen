@@ -17,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var watchdog: Timer?
 
+    /// 自动模式只在外接显示器插拔时动作，手动“恢复内置屏”后不会被立刻再次关闭
+    private var lastHasExternal: Bool?
+    /// 刚接上外接、尚未成功关闭内置屏（关闭失败时由 watchdog 重试）
+    private var autoDisablePending = false
+
     /// CoreGraphics 显示重配置回调（拔插显示器时即时触发，比 NSNotification 更底层、更早）。
     /// 闭包不捕获 self，AppDelegate 通过 userInfo 指针传入。
     private let reconfigCallback: CGDisplayReconfigurationCallBack = { _, flags, userInfo in
@@ -54,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    tr("Unable to call the private CGSConfigureDisplayEnabled API.",
                       "无法调用 CGSConfigureDisplayEnabled 私有接口。"))
         } else if autoMode {
-            evaluateAuto()
+            evaluateAuto(force: true)
         }
     }
 
@@ -81,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func enable() {
+        autoDisablePending = false   // 用户手动恢复：自动模式不再立刻关闭
         controller.enableBuiltin()
         intentDisabled = false
         refresh()
@@ -88,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleAuto() {
         autoMode.toggle()
-        if autoMode { evaluateAuto() }
+        if autoMode { evaluateAuto(force: true) }
         refresh()
     }
 
@@ -239,15 +245,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()
     }
 
-    private func evaluateAuto() {
+    /// - Parameter force: 启动 / 开启自动模式时为 true，按当前状态立即评估
+    private func evaluateAuto(force: Bool = false) {
         guard autoMode else { return }
-        if controller.hasExternalDisplay() {
-            if controller.isBuiltinActive(), controller.disableBuiltin() == .ok {
-                intentDisabled = true
+        let hasExt = controller.hasExternalDisplay()
+        if force || hasExt != lastHasExternal {
+            autoDisablePending = hasExt
+            if !hasExt, intentDisabled || !controller.isBuiltinActive() {
+                controller.enableBuiltin()
+                intentDisabled = false
             }
-        } else if intentDisabled || !controller.isBuiltinActive() {
-            controller.enableBuiltin()
-            intentDisabled = false
+        }
+        lastHasExternal = hasExt
+
+        if autoDisablePending && hasExt {
+            if !controller.isBuiltinActive() {
+                autoDisablePending = false
+            } else if controller.disableBuiltin() == .ok {
+                intentDisabled = true
+                autoDisablePending = false
+            }
         }
     }
 

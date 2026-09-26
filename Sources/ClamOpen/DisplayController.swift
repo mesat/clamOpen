@@ -11,7 +11,16 @@ final class DisplayController {
     typealias ConfigureDisplayEnabledFn =
         @convention(c) (CGDisplayConfigRef?, CGDirectDisplayID, Bool) -> CGError
 
+    /// CGError CGSGetDisplayList(uint32_t max, CGDirectDisplayID *list, uint32_t *count)
+    /// 与 CGGetOnlineDisplayList 不同，它也会列出被禁用的显示器
+    typealias GetDisplayListFn =
+        @convention(c) (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError
+
     private let configureEnabled: ConfigureDisplayEnabledFn?
+    private let getDisplayList: GetDisplayListFn?
+
+    /// 最近一次见到的内置屏 ID（兜底：禁用后枚举不到时仍能恢复）
+    private var lastBuiltinID: CGDirectDisplayID?
 
     init() {
         // RTLD_DEFAULT (== -2)：符号随 CoreGraphics 已载入本进程，直接取即可
@@ -21,6 +30,8 @@ final class DisplayController {
         } else {
             configureEnabled = nil
         }
+        getDisplayList = dlsym(rtldDefault, "CGSGetDisplayList")
+            .map { unsafeBitCast($0, to: GetDisplayListFn.self) }
     }
 
     /// 私有 API 是否可用（理论上所有现代 macOS 都可用）
@@ -37,8 +48,32 @@ final class DisplayController {
         return Array(ids.prefix(Int(count)))
     }
 
+    /// 所有显示器，包括被 CGSConfigureDisplayEnabled 禁用的。
+    /// Apple Silicon 上内置屏被禁用后会从 online 列表中消失，只能从这里找回。
+    func allDisplays() -> [CGDirectDisplayID] {
+        guard let getDisplayList else { return onlineDisplays() }
+        var count: UInt32 = 0
+        guard getDisplayList(0, nil, &count) == .success, count > 0 else { return onlineDisplays() }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard getDisplayList(count, &ids, &count) == .success else { return onlineDisplays() }
+        return Array(ids.prefix(Int(count)))
+    }
+
+    /// 在线的内置屏（可被关闭的那个）
     func builtinDisplay() -> CGDirectDisplayID? {
-        onlineDisplays().first { CGDisplayIsBuiltin($0) != 0 }
+        let id = onlineDisplays().first { CGDisplayIsBuiltin($0) != 0 }
+        if let id { lastBuiltinID = id }
+        return id
+    }
+
+    /// 内置屏 ID，即使当前已被禁用（用于恢复）
+    private func builtinDisplayIncludingDisabled() -> CGDirectDisplayID? {
+        if let id = builtinDisplay() { return id }
+        if let id = allDisplays().first(where: { CGDisplayIsBuiltin($0) != 0 }) {
+            lastBuiltinID = id
+            return id
+        }
+        return lastBuiltinID
     }
 
     /// 在线的外接显示器（非内置）
@@ -91,11 +126,12 @@ final class DisplayController {
         return apply(fn, display: builtin, enabled: false)
     }
 
-    /// 恢复内置屏
+    /// 恢复内置屏（也能找回已被禁用、不在 online 列表中的内置屏）
     @discardableResult
     func enableBuiltin() -> Result {
         guard let fn = configureEnabled else { return .apiMissing }
-        guard let builtin = builtinDisplay() else { return .noBuiltin }
+        if isBuiltinActive() { return .ok }
+        guard let builtin = builtinDisplayIncludingDisabled() else { return .noBuiltin }
         return apply(fn, display: builtin, enabled: true)
     }
 
